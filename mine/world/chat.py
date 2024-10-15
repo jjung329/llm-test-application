@@ -3,10 +3,10 @@ import streamlit as st
 from dotenv import load_dotenv
 from llm import get_ai_response
 
-st.set_page_config(page_title="DBaaS 챗봇", page_icon="🤖")
+st.set_page_config(page_title="보안 챗봇", page_icon="🤖")
 
-st.title("🤖 DBaaS 챗봇")
-st.caption("롯데이노베이트 DBaaS 데이터베이스에 관련된 모든 것을 답해드립니다")
+st.title("🤖 사내 보안 챗봇")
+st.caption("사내 보안에 관련된 모든 것을 답해드립니다")
 
 load_dotenv()
 
@@ -18,7 +18,7 @@ for message in st.session_state.message_list:
         st.write(message["content"])
 
 
-if user_question := st.chat_input(placeholder="DBaaS 데이터베이스에 관련된 궁금한 내용을 말씀해주세요!"):
+if user_question := st.chat_input(placeholder="보안에 관련된 궁금한 내용을 말씀해주세요!"):
     with st.chat_message("user"):
         st.write(user_question)
     st.session_state.message_list.append({"role": "user", "content": user_question})
