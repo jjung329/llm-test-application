@@ -1,2 +1,3 @@
-./company/security/.env
-./mine/world/.env
+
+mine/world/.env
+company/security/.env
