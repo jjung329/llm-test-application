@@ -2,3 +2,5 @@
 mine/world/.env
 company/security/.env
 mine/dbaas/.env
+mine/purchase/.env
+mine/.env

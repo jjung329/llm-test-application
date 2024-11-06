@@ -36,7 +36,14 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 from langchain.retrievers import EnsembleRetriever
 from langchain_community.retrievers import BM25Retriever
+from dotenv import load_dotenv
+from langchain_teddynote import logging
 
+logging.langsmith("purchase")
+# set_enable=False 로 지정하면 추적을 하지 않습니다.
+# logging.langsmith("랭체인 튜토리얼 프로젝트", set_enable=False)
+
+load_dotenv()
 ## Vector DB로부터 retreiver 수행 
 def get_retriever():
     embeddings = OpenAIEmbeddings(model='text-embedding-ada-002')
@@ -82,65 +89,41 @@ def get_llm(model='gpt-3.5-turbo'):
     return llm
 
 
-def get_rag_chain():
+def get_rag_chain(input, context):
     llm = get_llm()
     system_prompt = (
-        "당신은 파트너사 분석가입니다. 당신의 주요 목표는 파트너사에 대한 정확한 정보를 수집하고 분석하여 담당자에게 효과적으로 정보를 전달하는 것입니다."
-"사용자의 질문에 답변할 때는 다음 사항을 유의해 주세요. "
-"1. 문서를 철저히 검토하세요: 아래에 제공된 문서의 내용을 꼼꼼히 살펴보아야 합니다. 대부분 문서 내에 답이 존재할 수 있으므로, 모든 관련 정보를 확인하세요."
-"2. 답변이 불확실할 경우: 문서 내에서 정보를 찾지 못했다면, '모른다'고 답변해주세요. "
-"3. 가독성 높이기: 답변은 가독성이 좋도록 작성해주세요. 필요한 경우 볼드체로 구성하여 정보를 명확히 전달하세요."
-"이 지침을 따라, 사용자의 질문에 최선을 다해 응답해 주세요. "
-        "\n\n"
-        "{context}"
+        """당신은 파트너사 분석가입니다. 당신의 주요 목표는 파트너사에 대한 정확한 정보를 수집하고 분석하여 담당자에게 효과적으로 정보를 전달하는 것입니다.
+사용자의 질문에 답변할 때는 다음 사항을 유의해 주세요. 
+1. 문서를 철저히 검토하세요: 아래에 제공된 문서의 내용을 꼼꼼히 살펴보아야 합니다. 대부분 문서 내에 답이 존재할 수 있으므로, 모든 관련 정보를 확인하세요.
+2. 답변이 불확실할 경우: 문서 내에서 정보를 찾지 못했다면, '모른다'고 답변해주세요. 
+3. 가독성 높이기: 답변은 가독성이 좋도록 작성해주세요. 필요한 경우 볼드체로 구성하여 정보를 명확히 전달하세요.
+이 지침을 따라, 사용자의 질문에 최선을 다해 응답해 주세요. \n\n""" + "\n\n".join(context)
     )
     
+    print("system_propmt\n")
+    print(system_prompt)
     qa_prompt = ChatPromptTemplate.from_messages(
         [
             ("system", system_prompt),
-            ("human", "{input}"),
+            ("human", input),
         ]
     )
 
     # 벡터 DB에서 검색기 생성
     retriever = get_retriever()
     # RAG 체인 생성
-    question_answer_chain = create_stuff_documents_chain(llm, qa_prompt)
-    # history_aware_retriever를 사용하지 않고 단순한 retrieval chain 생성
+    # question_answer_chain = create_stuff_documents_chain(llm, qa_prompt)
+    # return question_answer_chain
     
-    # bm25 + retreiver
-    # rag_chain = create_retrieval_chain(retriever, question_answer_chain)
-    return question_answer_chain
+    def answer_question(input):
+        # LLM에 질문과 문맥을 전달하여 응답 생성
+        response = llm(qa_prompt.format(input=input))
+        return response
+    
+    return answer_question
 
 
-def weighted_combination(bm25_results, retriever_results):
-    # 가중치 설정
-    bm25_weight = 1  # BM25 문서에 대한 가중치
-    retriever_weight = 1  # retriever 문서에 대한 가중치
-
-    # 문서 내용 결합
-    combined_context = ""
-    # BM25 결과를 LangChain Document 객체로 변환
-    bm25_documents = [Document(page_content=result, metadata={}) for result in bm25_results]
-
-    # # BM25 문서 내용 추가
-    # for doc in bm25_documents:
-    #     combined_context += f"\n{doc}\n\n" * bm25_weight  # BM25 문서 수 만큼 반복
-
-    # # retriever 문서 내용 추가
-    # for doc in retriever_results:
-    #     combined_context += f"\n{doc.page_content}\n\n" * retriever_weight  # retriever 문서 수 만큼 반복
-
-    combined_context = bm25_documents+retriever_results
-
-    print("문서 검색 결과: \n")
-    print(combined_context)
-    print("\n")
-
-    return combined_context
-
-
-def get_ensemble_retriever(user_message, df):
+def get_ensemble_retriever(df):
 
     retriever = get_retriever()
 
@@ -150,7 +133,7 @@ def get_ensemble_retriever(user_message, df):
         documents
     )
 
-    bm25_retriever.k = 4
+    bm25_retriever.k = 3
 
     # EnsembleRetriever 생성
     ensemble_retriever = EnsembleRetriever(
@@ -159,23 +142,67 @@ def get_ensemble_retriever(user_message, df):
 
     return ensemble_retriever
 
+def extract_metadata(documents):
+    metadata_list = []
+    
+    for i, doc in enumerate(documents, start=1):
+        info = doc.metadata['info']
+        formatted_metadata = f"{i}. "
+        
+        # info 내용을 줄 단위로 나누어 추가
+        for line in info.split('\n'):
+            if line.strip():  # 빈 줄 제외
+                # 각 항목의 포맷을 개선
+                formatted_metadata += f"   {line.strip()}\n"
+        
+        # 추가로 가독성을 위한 구분 줄 추가
+        # formatted_metadata += "\n"  # 각 문서 사이에 빈 줄 추가
+        metadata_list.append(formatted_metadata)
+
+
+    # for i, doc in enumerate(documents, start=1):
+    #     # Document 객체인지 확인
+    #     if isinstance(doc, Document):
+    #         info = doc.metadata.get('info', '정보 없음')  # info가 없을 경우 기본값 설정
+
+    #         # page_content와 metadata에 info를 할당
+    #         page_content = info
+    #         metadata = {'info': info}
+
+    #         # Document 객체 생성
+    #         new_doc = Document(page_content=page_content, metadata=metadata)
+    #         metadata_list.append(new_doc)
+    #     else:
+    #         # Document가 아닌 경우 경고 메시지 추가
+    #         error_doc = Document(page_content='문서 형식 오류: Document 객체가 아닙니다.', metadata={})
+    #         metadata_list.append(error_doc)
+
+    return metadata_list
+
 
 def get_ai_response(user_message):
-    rag_chain = get_rag_chain()
+    # rag_chain = get_rag_chain()
 
     # EnsembleRetriever 사용
-    ensemble_retriever = get_ensemble_retriever(user_message, get_df())
-    combined_context = ensemble_retriever.get_relevant_documents(user_message, limit=5)  # 검색 결과 가져오기
+    ensemble_retriever = get_ensemble_retriever(get_df())
+    combined_context = ensemble_retriever.invoke(user_message, limit=3)  # 검색 결과 가져오기
+
+    # print("combined_context===")
+    # print(combined_context)
+    new_combined_context = extract_metadata(combined_context)
+    # print("new_combined===")
+    # print(new_combined_context)
 
     # 사용자 질문과 BM25 결과를 rag_chain에 전달하여 최종 응답을 받습니다.
-    ai_response = rag_chain.invoke(
-        {
-            "input": user_message,
-            "context": combined_context  # BM25 + retreiver 결과를 문맥으로 전달
-        }
-        # },
-        # config={"configurable": {"session_id": "asdasdasd"}}  # session_id 포함
-    )
+    # ai_response = rag_chain.invoke(
+    #     {
+    #         "input": user_message,
+    #         "context": new_combined_context  # BM25 + retreiver 결과를 문맥으로 전달
+    #     }
+    # )
+
+    rag_chain = get_rag_chain(input=user_message, context=new_combined_context)
+    ai_response = rag_chain(input=user_message)
 
     return ai_response
 
@@ -246,7 +273,7 @@ def get_bm25(user_message):
 
     # BM25 검색
     bm25_scores = bm25.get_scores(tokenized_query)
-    bm25_top_n = bm25_scores.argsort()[-5:][::-1]  # 상위 5개 문서 인덱스
+    bm25_top_n = bm25_scores.argsort()[-3:][::-1]  # 상위 5개 문서 인덱스
 
     # BM25 결과
     bm25_results = [documents[i] for i in bm25_top_n]
